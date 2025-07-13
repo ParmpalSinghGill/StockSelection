@@ -1,3 +1,5 @@
 MFStocks
 TempFiles
+.*
+_*
 *.csv
