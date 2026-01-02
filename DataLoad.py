@@ -45,8 +45,10 @@ def readFile(path):
 def getTickerFromName(name):
     global ComditiyDict
     if ComditiyDict is None:
-        ComditiyDict=pd.read_csv(StockDataFolder+"EQUITY_L.csv")
-        ComditiyDict={row["NAME OF COMPANY"].lower():row["SYMBOL"] for i,row in ComditiyDict.iterrows()}
+        ComditiyDF=pd.read_csv(StockDataFolder+"EQUITY_L.csv")
+        ComditiyDict={row["NAME OF COMPANY"].lower():row["SYMBOL"] for i,row in ComditiyDF.iterrows()}
+    if name in ComditiyDict.values():
+        return name
     name=name.lower().replace("ltd","limited")
     expcase={"adani port & sez limited":"ADANIPORTS"}
     if name in expcase:
@@ -56,6 +58,9 @@ def getTickerFromName(name):
         return ComditiyDict[matches[0]]
     return None
 
+def getStockNameFromSymbol(symbol):
+    ComditiyDict=pd.read_csv(StockDataFolder+"EQUITY_L.csv")
+    return ComditiyDict[ComditiyDict["SYMBOL"]==symbol]["NAME OF COMPANY"].values[0]
 
 def getData(key=None):
     global AllStocks,ComditiyDict

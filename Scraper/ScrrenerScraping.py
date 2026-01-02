@@ -2,12 +2,55 @@ import requests
 from bs4 import BeautifulSoup
 import pandas as pd
 import json
+import os,sys
+import time
+sys.path.append(os.path.abspath("."))
+from DataLoad import getTickerFromName
+
+CACHE_FILE = "DataProcessing/screener_cache.json"
+CACHE_EXPIRY = 7 * 24 * 60 * 60  # 1 week in seconds
 
 class ScreenerScraper:
     def __init__(self, ticker):
-        self.ticker = ticker
-        self.url = f"https://www.screener.in/company/{ticker}/"
+        self.ticker_name=ticker
+        self.ticker = getTickerFromName(ticker)
+        assert self.ticker is not None, f"Ticker not found for {ticker}"
+        self.url = f"https://www.screener.in/company/{self.ticker}/"
         self.soup = None
+
+    def _load_cache(self):
+        if not os.path.exists(CACHE_FILE):
+            return {}
+        try:
+            with open(CACHE_FILE, 'r') as f:
+                return json.load(f)
+        except (json.JSONDecodeError, IOError):
+            return {}
+
+    def _save_cache(self, cache_data):
+        try:
+            with open(CACHE_FILE, 'w') as f:
+                json.dump(cache_data, f, indent=4)
+        except IOError as e:
+            print(f"Error saving cache: {e}")
+
+    def get_cached_data(self):
+        cache = self._load_cache()
+        if self.ticker in cache:
+            entry = cache[self.ticker]
+            timestamp = entry.get('timestamp', 0)
+            if time.time() - timestamp < CACHE_EXPIRY:
+                # print(f"Loaded {self.ticker} from cache.")
+                return entry.get('data')
+        return None
+
+    def save_to_cache(self, data):
+        cache = self._load_cache()
+        cache[self.ticker] = {
+            'timestamp': time.time(),
+            'data': data
+        }
+        self._save_cache(cache)
 
     def fetch_data(self):
         try:
@@ -16,10 +59,10 @@ class ScreenerScraper:
                 self.soup = BeautifulSoup(response.content, "html.parser")
                 return True
             else:
-                print(f"Failed to fetch data. Status code: {response.status_code}")
+                print(f"Failed to fetch data for {self.ticker_name}({self.ticker}). Status code: {response.status_code} for url {self.url}")
                 return False
         except Exception as e:
-            print(f"Error fetching data: {e}")
+            print(f"Error fetching data for {self.ticker}: {e}")
             return False
 
     def get_top_ratios(self):
@@ -103,6 +146,11 @@ class ScreenerScraper:
         return data
 
     def scrape(self):
+        # Check cache first
+        cached_data = self.get_cached_data()
+        if cached_data:
+            return cached_data
+
         if not self.fetch_data():
             return None
 
@@ -171,9 +219,17 @@ class ScreenerScraper:
                      else:
                          data['Debt to Equity'] = None
 
+        # Save to cache
+        self.save_to_cache(data)
         return data
 
+
+def scrape_stock_data(ticker):
+    """Scrapes data for a single stock with caching."""
+    scraper = ScreenerScraper(ticker)
+    return scraper.scrape()
+
+
 if __name__ == "__main__":
-    scraper = ScreenerScraper("WEBELSOLAR")
-    result = scraper.scrape()
+    result =  scrape_stock_data("ADITYA BIRLA FASHION & RT")
     print(json.dumps(result, indent=4))

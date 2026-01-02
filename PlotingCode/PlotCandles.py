@@ -102,7 +102,8 @@ def PlotChart(df,Trend=None,TrendBox=None,LineS=None,Bars=None,addCloseLine=True
 	# Rotate date labels to make them readable
 	fig.autofmt_xdate()
 	# Show the chart
-	mpf.show()
+	# mpf.show()
+	return fig
 
 
 def PlotTrend(findTrend,df,windowlenght=100,n=10,lastNDays=2,minmumMovepercent=15):

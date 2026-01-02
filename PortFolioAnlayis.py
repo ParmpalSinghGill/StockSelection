@@ -1,5 +1,5 @@
 import pandas as pd
-from DataLoad import getData
+from DataLoad import getData,getStockNameFromSymbol
 from PlotingCode.PlotCandles import PlotChart 
 from SupportANDResistentChannel import SRChannels   # adjust import if needed
 
@@ -191,7 +191,7 @@ def AllPortfolioStocksData():
         if data is None:
             print(f"Key {sn} not found")
         else:
-            pfDict[sn] = data
+            pfDict[getStockNameFromSymbol(sn)] = data
 
     return pfDict
 
@@ -232,4 +232,6 @@ def Analysis():
         #     print(sname, "ERROR:", e)
 
 
-Analysis()
+if __name__ == "__main__":
+    # Analysis()
+    print(AllPortfolioStocksData().keys())
