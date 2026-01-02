@@ -1,0 +1,1 @@
+print("25_Nov_20" in "Scraper/MFStocks/HDFC_Focused_Fund/25_NOV_20.csv")

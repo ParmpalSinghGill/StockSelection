@@ -20,6 +20,17 @@ driver.get(url)
 # Wait for the page to load JS data
 time.sleep(2)
 
+# # Click the 4+ button to filter by rating
+# try:
+#     four_plus_button = driver.find_element(By.XPATH, "//*[contains(text(), '4+')]")
+#     four_plus_button.click()
+#     print("Clicked the '4+' button.")
+#     # Wait for the table to update with the filtered results
+#     time.sleep(2)
+# except Exception as e:
+#     print(f"Could not find or click the '4+' button: {e}")
+
+
 # Locate the table element
 table_header = driver.find_element(By.XPATH, '//thead')
 # Extract table headers
@@ -65,7 +76,7 @@ print(f"\n✅ Scraped {len(df)} mutual fund entries from {url}")
 print(df.head())
 
 # Save to CSV
-df.to_csv("groww_mutual_funds.csv", index=False)
+df.to_csv("groww_mutual_funds_2.csv", index=False)
 
 # Close browser
 driver.quit()

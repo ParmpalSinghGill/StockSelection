@@ -1,5 +1,8 @@
-MFStocks
+Scraper/MFStocks
 TempFiles
 .*
 _*
 *.csv
+MFFunds
+PortFolio/
+Results
