@@ -190,6 +190,7 @@ def AllPortfolioStocksData():
             pfDict[sn] = data
 
     df2 = pd.read_csv("PortFolio/holdings.csv")
+    df2=df2[~df2["Instrument"].str.contains("BEES")]
     for sn in df2["Instrument"].values:
         data = getData(sn)
         if data is None:
