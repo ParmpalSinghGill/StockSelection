@@ -65,33 +65,8 @@ def generate_large_chart(df, ticker):
         print(f"Error generating chart for {ticker}: {e}")
         return "" 
 
-def calculate_percentage_down(df, months):
-    """Calculates percentage down from max high in the last n months."""
-    try:
-        if months == 0: # 0 means all time (or max available)
-             period_df = df
-        else:
-            # Approximate months as 30 days
-            days = months * 30
-            start_date = df.index[-1] - pd.Timedelta(days=days)
-            period_df = df[df.index >= start_date]
-        
-        if period_df.empty:
-            return "N/A"
-            
-        max_high = period_df['High'].max()
-        current_price = df.iloc[-1]['Close']
-        
-        if max_high == 0: return 0.0
-        
-        pct_down = ((current_price - max_high) / max_high) * 100
-        return pct_down
-    except Exception as e:
-        print(f"Error calc pct down: {e}")
-        return "N/A"
-
-def calculate_percentage_up(df, months):
-    """Calculates percentage up from min low in the last n months."""
+def calculate_period_metrics(df, months):
+    """Calculates High, Low, and Growth % for the last n months."""
     try:
         if months == 0: 
              period_df = df
@@ -101,18 +76,38 @@ def calculate_percentage_up(df, months):
             period_df = df[df.index >= start_date]
         
         if period_df.empty:
-            return "N/A"
+            return {"high": "N/A", "low": "N/A", "growth": "N/A"}
             
+        max_high = period_df['High'].max()
         min_low = period_df['Low'].min()
+        
+        # Price at that time (start of period)
+        # We take the first available close price in the period
+        start_price = period_df.iloc[0]['Close']
         current_price = df.iloc[-1]['Close']
         
-        if min_low == 0: return 0.0
-        
-        pct_up = ((current_price - min_low) / min_low) * 100
-        return pct_up
+        growth = 0.0
+        if start_price != 0:
+            growth = ((current_price - start_price) / start_price) * 100
+            
+        high_diff = 0.0
+        if max_high != 0:
+            high_diff = ((current_price - max_high) / max_high) * 100
+            
+        low_diff = 0.0
+        if min_low != 0:
+            low_diff = ((current_price - min_low) / min_low) * 100
+            
+        return {
+            "high": max_high,
+            "low": min_low,
+            "growth": growth,
+            "high_diff": high_diff,
+            "low_diff": low_diff
+        }
     except Exception as e:
-        print(f"Error calc pct up: {e}")
-        return "N/A"
+        print(f"Error calc metrics: {e}")
+        return {"high": "N/A", "low": "N/A", "growth": "N/A"}
 
 def generate_fundamental_chart(data_dict, title, is_sparkline=True):
     """Generates a chart for fundamental data (EPS, Holdings)."""
@@ -215,7 +210,7 @@ st.title("Stock Analysis Dashboard")
 
 # Load Data
 with st.spinner("Loading Portfolio Data..."):
-    portfolio_data = load_portfolio_data()
+    portfolio_data, holding_data = load_portfolio_data()
 
 if not portfolio_data:
     st.error("No portfolio data found.")
@@ -230,8 +225,6 @@ if selected_ticker:
         st.query_params.clear()
         st.rerun()
     
-    st.title(f"{selected_ticker} Full Analysis")
-    
     # Load specific ticker data
     # portfolio_data keys are now Company Names, so we need to map Ticker -> Name
     from DataLoad import getStockNameFromSymbol
@@ -239,6 +232,8 @@ if selected_ticker:
         company_name = getStockNameFromSymbol(selected_ticker)
     except:
         company_name = selected_ticker
+
+    st.title(f"{company_name} ({selected_ticker}) Full Analysis")
 
     if company_name in portfolio_data:
         df = portfolio_data[company_name]
@@ -253,16 +248,160 @@ if selected_ticker:
 
 else:
     # Dashboard View
-    tickers = sorted(list(portfolio_data.keys()))
+    tickers = sorted(list(portfolio_data.keys())) # Process all tickers
+
+
+    # --- HTML Helpers ---
+    def fmt_metrics(metrics):
+        high = metrics['high']
+        low = metrics['low']
+        growth = metrics['growth']
+        high_diff = metrics.get('high_diff', 0)
+        low_diff = metrics.get('low_diff', 0)
+        
+        if high == "N/A": return "N/A"
+        
+        growth_color = "green" if growth >= 0 else "red"
+        growth_str = f"{growth:+.1f}%"
+        
+        return f"""
+        <div style="line-height:1.2">
+            <span style="color:{growth_color}; font-weight:bold">{growth_str}</span><br>
+            <span style="font-size:0.8em; color:#555">
+                H:{high:.0f} <span style="color:red">({high_diff:+.1f}%)</span><br>
+                L:{low:.0f} <span style="color:green">({low_diff:+.1f}%)</span>
+            </span>
+        </div>
+        """
+
+    def fund_cell(data_obj, ticker_symbol=None, section_anchor=None):
+        val = data_obj['val']
+        spark = data_obj['spark']
+        large = data_obj['large']
+        
+        content = f"{val}"
+        if ticker_symbol and section_anchor:
+             content = f'<a href="https://www.screener.in/company/{ticker_symbol}/#{section_anchor}" target="_blank" style="color:blue; text-decoration:underline;">{val}</a>'
+
+        if not spark:
+            return content
+            
+        spark_img = f"data:image/png;base64,{spark}"
+        large_img = f"data:image/png;base64,{large}"
+        return f"""
+<div class="tooltip">
+    {content} <br>
+    <img src="{spark_img}" class="sparkline" style="width:50px;height:15px;"/>
+    <span class="tooltiptext">
+        <img src="{large_img}" style="width:100%"/>
+    </span>
+</div>
+"""
+
+    def generate_row_html(row):
+        ticker_display = row['Ticker'] # Company Name
+        ticker_symbol = getTickerFromName(ticker_display) # Symbol
+        sparkline = f"data:image/png;base64,{row['Sparkline']}"
+        large_chart = f"data:image/png;base64,{row['LargeChart']}"
+        
+        # Holding Data
+        qty = row['Holding']['Qty']
+        avg_price = row['Holding']['AvgPrice']
+        pnl = row['Holding']['PnL']
+        pnl_pct = row['Holding']['PnLPct']
+        
+        pnl_color = "green" if pnl >= 0 else "red"
+        pnl_str = f"{pnl:,.0f}"
+        pnl_pct_str = f"{pnl_pct:+.1f}%"
+        
+        holding_html = ""
+        if qty > 0:
+            holding_html = f"""
+            <div style="font-size:0.9em; line-height:1.2">
+                Qty: {qty}<br>
+                Avg: {avg_price:.1f}<br>
+                <span style="color:{pnl_color}; font-weight:bold">{pnl_str} ({pnl_pct_str})</span>
+            </div>
+            """
+        else:
+            holding_html = "-"
+
+        return f"""
+<tr>
+    <td>
+        <div class="tooltip">
+            <a href="https://www.screener.in/company/{ticker_symbol}/" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold;">{ticker_display}</a>
+            <br>
+            <a href="https://in.tradingview.com/chart/?symbol={ticker_symbol}" target="_blank" style="font-size:0.8em; color:blue; text-decoration:none;">[TradingView]</a>
+            <span class="tooltiptext">
+                <h3>{ticker_display} Analysis</h3>
+                <img src="{large_chart}" style="width:100%"/>
+            </span>
+        </div>
+    </td>
+    <td>
+        <div class="tooltip">
+            <a href="?ticker={ticker_symbol}" target="_self">
+                <img src="{sparkline}" class="sparkline"/>
+            </a>
+            <span class="tooltiptext">
+                 <img src="{large_chart}" style="width:100%"/>
+            </span>
+        </div>
+    </td>
+    <td>{row['Price']:.2f}</td>
+    <td>{holding_html}</td>
+    <td>{fmt_metrics(row['Metrics']['1M'])}</td>
+    <td>{fmt_metrics(row['Metrics']['3M'])}</td>
+    <td>{fmt_metrics(row['Metrics']['6M'])}</td>
+    <td>{fmt_metrics(row['Metrics']['1Y'])}</td>
+    <td>{fmt_metrics(row['Metrics']['3Y'])}</td>
+    <td>{fmt_metrics(row['Metrics']['5Y'])}</td>
+    <td>{fund_cell(row['Fundamentals']['EPS'])}</td>
+    <td>{row['Fundamentals']['PE']}</td>
+    <td>{row['Fundamentals']['ROCE']}</td>
+    <td>{fund_cell(row['Fundamentals']['Promoter'], ticker_symbol, "shareholding")}</td>
+    <td>{fund_cell(row['Fundamentals']['FII'], ticker_symbol, "shareholding")}</td>
+    <td>{fund_cell(row['Fundamentals']['DII'], ticker_symbol, "shareholding")}</td>
+</tr>
+"""
+
+    table_header = '''
+    <table class="stock-table">
+    <tr>
+        <th>Ticker</th>
+        <th>Trend (90D)</th>
+        <th>Price</th>
+        <th>Holding</th>
+        <th>1M (Gr | H/L)</th>
+        <th>3M (Gr | H/L)</th>
+        <th>6M (Gr | H/L)</th>
+        <th>1Y (Gr | H/L)</th>
+        <th>3Y (Gr | H/L)</th>
+        <th>5Y (Gr | H/L)</th>
+        <th>EPS</th>
+        <th>PE</th>
+        <th>ROCE</th>
+        <th>Promoter</th>
+        <th>FII</th>
+        <th>DII</th>
+    </tr>
+    '''
 
     # Auto-load data if not in session state
     if 'table_data' not in st.session_state:
         table_data = []
+        rows_html = ""
+        
         progress_bar = st.progress(0)
         status_text = st.empty()
+        table_placeholder = st.empty()
+        
+        # Initial render of empty table
+        table_placeholder.markdown(table_header + "</table>", unsafe_allow_html=True)
         
         for i, ticker in enumerate(tickers):
-            status_text.text(f"Processing {ticker}...")
+            status_text.text(f"Processing {ticker} ({i+1}/{len(tickers)})...")
             df = portfolio_data[ticker]
             
             # Scrape
@@ -276,10 +415,7 @@ else:
             
             # Percentage Down/Up Metrics
             def calc_metrics(months):
-                return {
-                    "down": calculate_percentage_down(df, months),
-                    "up": calculate_percentage_up(df, months)
-                }
+                return calculate_period_metrics(df, months)
                 
             metrics = {
                 "1M": calc_metrics(1),
@@ -289,6 +425,22 @@ else:
                 "3Y": calc_metrics(36),
                 "5Y": calc_metrics(60)
             }
+            
+            # Holding Info
+            qty = 0
+            avg_price = 0.0
+            pnl = 0.0
+            pnl_pct = 0.0
+            
+            if ticker in holding_data:
+                qty, avg_price = holding_data[ticker]
+                current_price = df.iloc[-1]['Close']
+                if qty > 0:
+                    current_val = qty * current_price
+                    invested_val = qty * avg_price
+                    pnl = current_val - invested_val
+                    if invested_val > 0:
+                        pnl_pct = (pnl / invested_val) * 100
             
             # Fundamental Data Charts
             eps_data = fund_data.get("EPS", {})
@@ -307,9 +459,6 @@ else:
             
             dii_spark = generate_fundamental_chart(dii_data, "DII Holding", is_sparkline=True)
             dii_large = generate_fundamental_chart(dii_data, "DII Holding", is_sparkline=False)
-            
-            dii_spark = generate_fundamental_chart(dii_data, "DII Holding", is_sparkline=True)
-            dii_large = generate_fundamental_chart(dii_data, "DII Holding", is_sparkline=False)
 
             # Extract metrics (current values)
             def get_last_val(d):
@@ -320,20 +469,26 @@ else:
                     return d[last_key]
                 except: return "N/A"
 
-            current_eps = get_last_val(eps_data)
-            current_promoter = get_last_val(promoter_data)
-            current_fii = get_last_val(fii_data)
-            current_dii = get_last_val(dii_data)
+            current_eps = get_last_val(fund_data.get("EPS", []))
+            current_promoter = get_last_val(fund_data.get("Promoter Holding", []))
+            current_fii = get_last_val(fund_data.get("FII Holding", []))
+            current_dii = get_last_val(fund_data.get("DII Holding", []))
             
             pe = fund_data.get("PE", "N/A")
             roce = fund_data.get("ROCE", "N/A")
             
-            table_data.append({
+            row_data = {
                 "Ticker": ticker,
                 "Sparkline": sparkline_b64,
                 "LargeChart": large_chart_b64,
                 "Price": df.iloc[-1]['Close'],
                 "Metrics": metrics,
+                "Holding": {
+                    "Qty": qty,
+                    "AvgPrice": avg_price,
+                    "PnL": pnl,
+                    "PnLPct": pnl_pct
+                },
                 "Fundamentals": {
                     "EPS": {"val": current_eps, "spark": eps_spark, "large": eps_large},
                     "Promoter": {"val": current_promoter, "spark": promoter_spark, "large": promoter_large},
@@ -342,111 +497,24 @@ else:
                     "PE": pe,
                     "ROCE": roce
                 }
-            })
+            }
+            
+            table_data.append(row_data)
+            
+            # Incremental Render
+            rows_html += generate_row_html(row_data)
+            table_placeholder.markdown(table_header + rows_html + "</table>", unsafe_allow_html=True)
             
             progress_bar.progress((i + 1) / len(tickers))
         
         status_text.empty()
         st.session_state['table_data'] = table_data
 
-    if 'table_data' in st.session_state:
-        # Build HTML Table
-        html = '<table class="stock-table">'
-        html += '''
-        <tr>
-            <th>Ticker</th>
-            <th>Trend (90D)</th>
-            <th>Price</th>
-            <th>1M (Dn/Up)</th>
-            <th>3M (Dn/Up)</th>
-            <th>6M (Dn/Up)</th>
-            <th>1Y (Dn/Up)</th>
-            <th>3Y (Dn/Up)</th>
-            <th>5Y (Dn/Up)</th>
-            <th>EPS</th>
-            <th>PE</th>
-            <th>ROCE</th>
-            <th>Promoter</th>
-            <th>FII</th>
-            <th>DII</th>
-        </tr>
-        '''
-        
+    else:
+        # Render from session state
+        rows_html = ""
         for row in st.session_state['table_data']:
-            ticker = row['Ticker']
-            ticker_name = getTickerFromName(ticker)
-            sparkline = f"data:image/png;base64,{row['Sparkline']}"
-            large_chart = f"data:image/png;base64,{row['LargeChart']}"
-            
-            # Helper for pct formatting
-            def fmt_pct_pair(metrics):
-                dn = metrics['down']
-                up = metrics['up']
-                
-                dn_str = f"{dn:.1f}%" if isinstance(dn, (int, float)) else dn
-                up_str = f"{up:.1f}%" if isinstance(up, (int, float)) else up
-                
-                return f"<span style='color:red'>{dn_str}</span> / <span style='color:green'>{up_str}</span>"
-
-            # Helper for fundamental cell with tooltip
-            def fund_cell(data_obj):
-                val = data_obj['val']
-                spark = data_obj['spark']
-                large = data_obj['large']
-                
-                if not spark:
-                    return f"{val}"
-                
-                spark_img = f"data:image/png;base64,{spark}"
-                large_img = f"data:image/png;base64,{large}"
-                
-                return f"""
-                <div class="tooltip">
-                    {val} <br>
-                    <img src="{spark_img}" class="sparkline" style="width:50px;height:15px;"/>
-                    <span class="tooltiptext">
-                        <img src="{large_img}" style="width:100%"/>
-                    </span>
-                </div>
-                """
-
-            html += f"""
-<tr>
-    <td>
-        <div class="tooltip">
-            <a href="https://www.screener.in/company/{ticker_name}/" target="_blank" style="text-decoration:none; color:inherit; font-weight:bold;">{ticker}</a>
-            <span class="tooltiptext">
-                <h3>{ticker} Analysis</h3>
-                <img src="{large_chart}" style="width:100%"/>
-            </span>
-        </div>
-    </td>
-    <td>
-        <div class="tooltip">
-            <a href="?ticker={ticker_name}" target="_self">
-                <img src="{sparkline}" class="sparkline"/>
-            </a>
-            <span class="tooltiptext">
-                 <img src="{large_chart}" style="width:100%"/>
-            </span>
-        </div>
-    </td>
-    <td>{row['Price']:.2f}</td>
-    <td>{fmt_pct_pair(row['Metrics']['1M'])}</td>
-    <td>{fmt_pct_pair(row['Metrics']['3M'])}</td>
-    <td>{fmt_pct_pair(row['Metrics']['6M'])}</td>
-    <td>{fmt_pct_pair(row['Metrics']['1Y'])}</td>
-    <td>{fmt_pct_pair(row['Metrics']['3Y'])}</td>
-    <td>{fmt_pct_pair(row['Metrics']['5Y'])}</td>
-    <td>{fund_cell(row['Fundamentals']['EPS'])}</td>
-    <td>{row['Fundamentals']['PE']}</td>
-    <td>{row['Fundamentals']['ROCE']}</td>
-    <td>{fund_cell(row['Fundamentals']['Promoter'])}</td>
-    <td>{fund_cell(row['Fundamentals']['FII'])}</td>
-    <td>{fund_cell(row['Fundamentals']['DII'])}</td>
-</tr>
-"""
-        html += '</table>'
+            rows_html += generate_row_html(row)
         
-        st.markdown(html, unsafe_allow_html=True)
+        st.markdown(table_header + rows_html + "</table>", unsafe_allow_html=True)
 

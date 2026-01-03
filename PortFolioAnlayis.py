@@ -1,5 +1,6 @@
+from collections import defaultdict
 import pandas as pd
-from DataLoad import getData,getStockNameFromSymbol
+from DataLoad import getData,getStockNameFromSymbol,getTickerFromName
 from PlotingCode.PlotCandles import PlotChart 
 from SupportANDResistentChannel import SRChannels   # adjust import if needed
 
@@ -175,10 +176,13 @@ def AllPortfolioStocksData():
         "PortFolio/Stocks_Holdings_Statement_5364437922_30-12-2025.xlsx",
         skiprows=10
     )
+    df=df[~df["Stock Name"].str.contains("ETF")]
+    df["Ticker"]=df["Stock Name"].map(getTickerFromName)
+    df.dropna(subset=["Ticker"], inplace=True)
 
     pfDict = {}
 
-    for sn in df["Stock Name"].values:
+    for sn in df["Ticker"].values:
         data = getData(sn)
         if data is None:
             print(f"Key {sn} not found")
@@ -191,9 +195,32 @@ def AllPortfolioStocksData():
         if data is None:
             print(f"Key {sn} not found")
         else:
-            pfDict[getStockNameFromSymbol(sn)] = data
+            pfDict[sn] = data
+    holdingdict=defaultdict(tuple)
+    for sn in pfDict.keys():
+        if sn in df["Ticker"].values and sn in df2["Instrument"].values:
+            subdf1=df.loc[df["Ticker"] == sn]
+            subdf2=df2.loc[df2["Instrument"] == sn]
+            totalquantity=subdf1["Quantity"].values[0]+subdf2["Qty."].values[0]
+            averagebuyprice=(subdf1["Average buy price"].values[0]*subdf1["Quantity"].values[0]+subdf2["Avg. cost"].values[0]*subdf2["Qty."].values[0])/(subdf1["Quantity"].values[0]+subdf2["Qty."].values[0])
+            holdingdict[sn]=(totalquantity,averagebuyprice)
+        elif sn in df["Ticker"].values:
+            subdf1=df.loc[df["Ticker"] == sn]
+            totalquantity=subdf1["Quantity"].values[0]
+            averagebuyprice=subdf1["Average buy price"].values[0]
+            holdingdict[sn]=(totalquantity,averagebuyprice)
+        elif sn in df2["Instrument"].values:
+            subdf2=df2.loc[df2["Instrument"] == sn]
+            totalquantity=subdf2["Qty."].values[0]
+            averagebuyprice=subdf2["Avg. cost"].values[0]
+            holdingdict[sn]=(totalquantity,averagebuyprice)
+    
+    pfDict={getStockNameFromSymbol(k):v for k,v in pfDict.items()}
+    holdingdict={getStockNameFromSymbol(k):v for k,v in holdingdict.items()}
 
-    return pfDict
+    # df["Tickerame"]
+
+    return pfDict,holdingdict
 
 
 # ---------------------------------------------------------
@@ -208,7 +235,7 @@ def Analysis():
     min_strength = 1
     max_num_sr = 6
 
-    for sname, df in AllPortfolioStocksData().items():
+    for sname, df in AllPortfolioStocksData()[0].items():
         # try:
             sr = SRChannels(
                 period=prd,
@@ -234,4 +261,4 @@ def Analysis():
 
 if __name__ == "__main__":
     # Analysis()
-    print(AllPortfolioStocksData().keys())
+    print(AllPortfolioStocksData()[0].keys())

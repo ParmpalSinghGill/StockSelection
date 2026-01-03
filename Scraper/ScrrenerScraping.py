@@ -7,6 +7,7 @@ import time
 sys.path.append(os.path.abspath("."))
 from DataLoad import getTickerFromName
 
+USE_CHACHE=True
 CACHE_FILE = "DataProcessing/screener_cache.json"
 CACHE_EXPIRY = 7 * 24 * 60 * 60  # 1 week in seconds
 
@@ -148,7 +149,7 @@ class ScreenerScraper:
     def scrape(self):
         # Check cache first
         cached_data = self.get_cached_data()
-        if cached_data:
+        if USE_CHACHE and cached_data:
             return cached_data
 
         if not self.fetch_data():
@@ -161,6 +162,7 @@ class ScreenerScraper:
         data['Current Price'] = ratios.get('Current Price')
         data['Market Cap'] = ratios.get('Market Cap')
         data['PE'] = ratios.get('Stock P/E')
+        data['Industry PE'] = ratios.get('Industry PE')
         data['ROCE'] = ratios.get('ROCE')
         data['ROE'] = ratios.get('ROE')
         data['Book Value'] = ratios.get('Book Value')
@@ -231,5 +233,12 @@ def scrape_stock_data(ticker):
 
 
 if __name__ == "__main__":
-    result =  scrape_stock_data("ADITYA BIRLA FASHION & RT")
-    print(json.dumps(result, indent=4))
+    result =  scrape_stock_data("RELIANCE")
+    # print(json.dumps(result, indent=4))
+    if result:
+        print("Keys found:", result.keys())
+        # Re-instantiate to check ratios specifically if needed, but result should have it if my code worked
+        # Let's check what's in result['Industry PE']
+        print("Industry PE:", result.get('Industry PE'))
+    else:
+        print("No result found")

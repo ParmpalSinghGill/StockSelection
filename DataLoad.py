@@ -62,10 +62,18 @@ def getStockNameFromSymbol(symbol):
     ComditiyDict=pd.read_csv(StockDataFolder+"EQUITY_L.csv")
     return ComditiyDict[ComditiyDict["SYMBOL"]==symbol]["NAME OF COMPANY"].values[0]
 
+import threading
+
+_data_lock = threading.Lock()
+
 def getData(key=None):
     global AllStocks,ComditiyDict
+    
     if AllStocks is None:
-        AllStocks=readFile(StockDataFolder+"AllSTOCKS.pk")
+        with _data_lock:
+            if AllStocks is None: # Double-check locking pattern
+                AllStocks=readFile(StockDataFolder+"AllSTOCKS.pk")
+                
     if key is None:
         return AllStocks
     elif key in AllStocks:
