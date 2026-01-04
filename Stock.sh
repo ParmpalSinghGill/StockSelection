@@ -1,1 +1,3 @@
-~/anaconda3/envs/mixlib/bin/python3.11 /media/parmpal/Data/Codes/MyCodes/StockS/StockSelection/OpenChatIinks.py $@
+#!/bin/bash
+cd /media/parmpal/Data/Codes/MyCodes/StockS/StockSelection
+~/anaconda3/envs/stock/bin/python /media/parmpal/Data/Codes/MyCodes/StockS/StockSelection/PortfolioStockLevels.py $@

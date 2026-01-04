@@ -103,8 +103,13 @@ def getData(key=None):
             return None
 
 
+def getStocktoWatch():
+    stocks=pd.read_csv("PortFolio/StockToWatch.csv")["Stocks"].values
+    stocks={stock:getData(stock) for stock in stocks}
+    return stocks
 
 
+# print(getStocktoWatch())
 # def getMyStocks():
 #     with open("DataProcessing/MyStock") as f:
 #         data=[d[:-1] for d in f.readlines()]

@@ -10,16 +10,19 @@ import plotly.express as px
 from PortFolioAnlayis import AllPortfolioStocksData, SRChannels, price_level_story, split_sr_zones
 from Scraper.ScrrenerScraping import scrape_stock_data
 from PlotingCode.PlotCandles import PlotChart
-from DataLoad import getTickerFromName
+from DataLoad import getTickerFromName,getStocktoWatch
 
 st.set_page_config(layout="wide", page_title="Stock Analysis Dashboard")
 
+MODE="STOCKTOWATH" # PORTFOLIO,STOCKTOWATH
 # --- Helper Functions ---
 
 @st.cache_data(ttl="1d")
 def load_portfolio_data():
     """Loads portfolio data using the existing function."""
     return AllPortfolioStocksData()
+    
+
 
 def get_sr_analysis(df, sname):
     """Calculates SR zones and story for a stock."""
@@ -110,6 +113,50 @@ def calculate_period_metrics(df, months):
     except Exception as e:
         print(f"Error calc metrics: {e}")
         return {"high": "N/A", "low": "N/A", "growth": "N/A"}
+
+def calculate_fundamental_metrics(data_dict):
+    """Calculates Start, End, Change %, High, and Low for fundamental data."""
+    if not data_dict or not isinstance(data_dict, dict):
+        return None
+
+    try:
+        # Parse dates and values
+        parsed_data = []
+        for k, v in data_dict.items():
+            if k == "TTM": continue
+            try:
+                dt = pd.to_datetime(k, format='%b %Y', errors='coerce')
+                if pd.notnull(dt) and v is not None:
+                    parsed_data.append((dt, float(v)))
+            except:
+                continue
+        
+        if not parsed_data:
+            return None
+            
+        # Sort by date
+        parsed_data.sort(key=lambda x: x[0])
+        
+        start_val = parsed_data[0][1]
+        end_val = parsed_data[-1][1]
+        values = [x[1] for x in parsed_data]
+        high_val = max(values)
+        low_val = min(values)
+        
+        change_pct = 0.0
+        if start_val != 0:
+            change_pct = (end_val - start_val)
+            # change_pct = ((end_val - start_val) / start_val) * 100
+            
+        return {
+            "current": end_val,
+            "change_pct": change_pct,
+            "high": high_val,
+            "low": low_val
+        }
+    except Exception as e:
+        print(f"Error calc fund metrics: {e}")
+        return None
 
 @st.cache_data(ttl="1d")
 def generate_fundamental_chart(data_dict, title, is_sparkline=True):
@@ -259,7 +306,11 @@ st.title("Stock Analysis Dashboard")
 
 # Load Data
 with st.spinner("Loading Portfolio Data..."):
-    portfolio_data, holding_data = load_portfolio_data()
+    if MODE=="PORTFOLIO":
+        portfolio_data, holding_data = load_portfolio_data()
+    elif MODE=="STOCKTOWATH":
+        portfolio_data=getStocktoWatch()
+        holding_data=None
 
 if not portfolio_data:
     st.error("No portfolio data found.")
@@ -456,7 +507,7 @@ else:
                     st.download_button(
                         label="Download Export Excel",
                         data=buffer,
-                        file_name='stock_analysis_export.xlsx',
+                        file_name='Portfoliow_report.xlsx' if MODE=="PORTFOLIO" else 'Stocks_report.xlsx',
                         mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     )
                     st.success(f"Export Report Generated for {len(selected_export_tickers)} stocks! Click above to download.")
@@ -491,19 +542,32 @@ else:
         val = data_obj['val']
         spark = data_obj['spark']
         large = data_obj['large']
+        metrics = data_obj.get('metrics') # Get metrics if available
         
         content = f"{val}"
         if ticker_symbol and section_anchor:
-             content = f'<a href="https://www.screener.in/company/{ticker_symbol}/#{section_anchor}" target="_blank" style="color:blue; text-decoration:underline;">{val}</a>'
+            change_color = "green" if metrics['change_pct'] >= 0 else "red"
+            content = f'<a href="https://www.screener.in/company/{ticker_symbol}/#{section_anchor}" target="_blank" style="color:blue; text-decoration:underline;">{val} (<span style="color:{change_color}">{metrics['change_pct']:+.1f}%</span>)</a>'
+
+        # Add metrics info if available
+        metrics_html = ""
+        if metrics:
+
+            metrics_html = f"""
+            <br>
+            <span style="font-size:0.8em;">
+                H: {metrics['high']:.2f} L: {metrics['low']:.2f}
+            </span>
+            """
 
         if not spark:
-            return content
+            return content + metrics_html
             
         spark_img = f"data:image/png;base64,{spark}"
         large_img = f"data:image/png;base64,{large}"
         return f"""
 <div class="tooltip">
-    {content} <br>
+    {content} {metrics_html} <br>
     <img src="{spark_img}" class="sparkline" style="width:50px;height:15px;"/>
     <span class="tooltiptext">
         <img src="{large_img}" style="width:100%"/>
@@ -520,8 +584,19 @@ else:
 
     # Header
     cols = st.columns(col_ratios)
+    
+    # Select All Checkbox
+    with cols[0]:
+        def toggle_select_all():
+            select_all_state = st.session_state.get('select_all', False)
+            for t in tickers:
+                st.session_state[f"select_{t}"] = select_all_state
+                
+        st.checkbox("All", key="select_all", on_change=toggle_select_all, label_visibility="collapsed")
+
     headers = ["Sel", "Ticker", "Trend", "Price", "Support", "Holding", "1M", "3M", "6M", "1Y", "3Y", "5Y", "EPS", "PE", "ROCE", "Prom", "FII", "DII"]
-    for col, h in zip(cols, headers):
+    # Skip the first column for header text since it has the checkbox
+    for col, h in zip(cols[1:], headers[1:]):
         col.markdown(f"**{h}**")
     
     st.markdown("---")
@@ -578,7 +653,7 @@ else:
             pnl = 0.0
             pnl_pct = 0.0
             
-            if ticker in holding_data:
+            if holding_data is not None and ticker in holding_data:
                 qty, avg_price = holding_data[ticker]
                 # current_price already defined above
                 if qty > 0:
@@ -611,6 +686,11 @@ else:
             current_fii = get_last_val(fund_data.get("FII Holding", []))
             current_dii = get_last_val(fund_data.get("DII Holding", []))
             
+            # Calculate Metrics for Holdings
+            promoter_metrics = calculate_fundamental_metrics(promoter_data)
+            fii_metrics = calculate_fundamental_metrics(fii_data)
+            dii_metrics = calculate_fundamental_metrics(dii_data)
+            
             pe = fund_data.get("PE", "N/A")
             roce = fund_data.get("ROCE", "N/A")
             
@@ -629,9 +709,9 @@ else:
                 },
                 "Fundamentals": {
                     "EPS": {"val": current_eps, "spark": eps_spark, "large": eps_large},
-                    "Promoter": {"val": current_promoter, "spark": promoter_spark, "large": promoter_large},
-                    "FII": {"val": current_fii, "spark": fii_spark, "large": fii_large},
-                    "DII": {"val": current_dii, "spark": dii_spark, "large": dii_large},
+                    "Promoter": {"val": current_promoter, "spark": promoter_spark, "large": promoter_large, "metrics": promoter_metrics},
+                    "FII": {"val": current_fii, "spark": fii_spark, "large": fii_large, "metrics": fii_metrics},
+                    "DII": {"val": current_dii, "spark": dii_spark, "large": dii_large, "metrics": dii_metrics},
                     "PE": pe,
                     "ROCE": roce
                 }
@@ -688,19 +768,20 @@ else:
         <span style="font-size:0.8em; color:#555">({support_info['dist']:.1f}%)</span>
         """, unsafe_allow_html=True)
         
-        # 6. Holding
-        holding = row_data['Holding']
-        if holding['Qty'] > 0:
-            pnl_color = "green" if holding['PnL'] >= 0 else "red"
-            cols[5].markdown(f"""
-            <div style="font-size:0.9em; line-height:1.2">
-                Qty: {holding['Qty']}<br>
-                Avg: {holding['AvgPrice']:.1f}<br>
-                <span style="color:{pnl_color}; font-weight:bold">{holding['PnL']:,.0f} ({holding['PnLPct']:+.1f}%)</span>
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            cols[5].markdown("-")
+        if MODE=="PORTFOLIO":
+            # 6. Holding
+            holding = row_data['Holding']
+            if holding['Qty'] > 0:
+                pnl_color = "green" if holding['PnL'] >= 0 else "red"
+                cols[5].markdown(f"""
+                    <div style="font-size:0.9em; line-height:1.2">
+                    Qty: {holding['Qty']}<br>
+                    Avg: {holding['AvgPrice']:.1f}<br>
+                    <span style="color:{pnl_color}; font-weight:bold">{holding['PnL']:,.0f} ({holding['PnLPct']:+.1f}%)</span>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                cols[5].markdown("-")
             
         # 7-12. Metrics
         cols[6].markdown(fmt_metrics(row_data['Metrics']['1M']), unsafe_allow_html=True)
