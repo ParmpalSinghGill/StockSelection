@@ -14,7 +14,7 @@ import google.generativeai as genai
 TICKER = "Reliance Industries"
 DOWNLOAD_FOLDER = "brokerage_reports"
 # Get your key from: https://aistudio.google.com/app/apikey
-GEMINI_API_KEY = "AIzaSyDy0VY_Ui71Nlm8dBS6FD2FOSq6ocupUsw" 
+GEMINI_API_KEY = "" 
 
 # Configure Gemini
 genai.configure(api_key=GEMINI_API_KEY)
